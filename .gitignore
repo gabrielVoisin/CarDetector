@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .agent-data/
+plate_sensor/reader.env
+plate_sensor/sensor.env
+plate_sensor/.venv/

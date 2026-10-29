@@ -1,0 +1,20 @@
+# systemd *user* unit of the plate sensor. Install:
+#   cp plate_sensor/parking-reader.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now parking-reader
+# (and `sudo loginctl enable-linger $USER` so it starts at boot without a login)
+[Unit]
+Description=IntelPark plate sensor CP-001 (camera + AI)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/intelpark/CarDetector
+# Options (--rotate, --max-fps, ...) in reader.env; the shared token (SENSOR_TOKEN=...) in sensor.env
+EnvironmentFile=-%h/intelpark/CarDetector/plate_sensor/reader.env
+EnvironmentFile=-%h/intelpark/CarDetector/plate_sensor/sensor.env
+ExecStart=%h/intelpark/CarDetector/plate_sensor/.venv/bin/python plate_sensor/reader.py $READER_ARGS
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

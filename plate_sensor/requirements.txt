@@ -1,0 +1,4 @@
+requests>=2.31
+opencv-python-headless
+fast-alpr[onnx]>=0.4
+# picamera2 comes from apt (python3-picamera2): create the venv with --system-site-packages

@@ -46,6 +46,9 @@ class Client:
     def config(self) -> dict:
         return self._call("GET", "/config")
 
+    def watchdog(self, body: dict) -> dict:
+        return self._call("POST", "/watchdog", body, timeout=1.5)
+
     def heartbeat(self, body: dict) -> dict:
         return self._call("POST", "/heartbeat", body)
 

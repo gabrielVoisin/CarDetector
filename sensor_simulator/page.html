@@ -54,6 +54,7 @@ label { font-size: 13px; color: var(--muted); }
     <div class="kpi"><span>Libres</span><b id="k-free">–</b></div>
     <div class="kpi"><span>Occupées</span><b id="k-occ">–</b></div>
     <div class="kpi"><span>Capteurs simulés</span><b id="k-all">–</b></div>
+    <div class="kpi"><span>Watchdog serveur · 0,5 Hz</span><b id="k-wd">–</b><small id="k-wd-sub" class="muted"></small></div>
   </div>
   <section class="card">
     <div class="row">
@@ -106,6 +107,10 @@ function render() {
   }
   const occ = state.sensors.filter((s) => s.occupied).length;
   $('k-occ').textContent = occ; $('k-free').textContent = state.sensors.length - occ; $('k-all').textContent = state.sensors.length;
+  const wd = state.watchdog || {};
+  $('k-wd').textContent = wd.ok === true ? 'OK' : wd.ok === false ? 'Perdu' : '–';
+  $('k-wd').style.color = wd.ok === false ? 'var(--red)' : wd.ok ? 'var(--green)' : '';
+  $('k-wd-sub').textContent = wd.seq ? `signal n° ${wd.seq}` + (wd.last_ok ? ` · dernier OK ${new Date(wd.last_ok).toLocaleTimeString('fr-CH')}` : '') : '';
   const t = $('traffic');
   t.classList.toggle('on', state.traffic); t.setAttribute('aria-pressed', state.traffic);
   t.textContent = 'Trafic automatique : ' + (state.traffic ? 'en marche' : 'arrêté');

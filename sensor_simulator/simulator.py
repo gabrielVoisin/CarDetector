@@ -30,6 +30,7 @@ HERE = Path(__file__).parent
 CANTONS = ["VD", "GE", "VS", "FR", "NE", "BE", "ZH", "JU"]
 RESEND_SECONDS = 60   # every sensor repeats its state, so the server stays right after a restart
 CONFIG_SECONDS = 60   # the list of simulated sensors is read again from the server
+WATCHDOG_SECONDS = 2  # communication watchdog with the server: one signal every 2 s (0.5 Hz)
 
 
 def load_env(path):
@@ -54,6 +55,9 @@ class Simulator:
         self.traffic = False
         self.last_error = None
         self.last_sent = None
+        self.wd_seq = 0
+        self.wd_ok = None          # None = not tried yet
+        self.wd_last_ok = None
         self.stop = Event()
 
     def _call(self, method, path, body=None):
@@ -101,6 +105,24 @@ class Simulator:
             self.last_error = f"envoi: {e}"
             log.warning("cannot send the readings: %s", e)
 
+    def watchdog(self):
+        """Signal to the server (0.5 Hz). When the link comes back, the whole state is sent again at once,
+        so that nothing parked or freed during the outage is missing on the website."""
+        self.wd_seq += 1
+        try:
+            self._call("POST", "/watchdog", {"source": "simulator", "seq": self.wd_seq})
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            if self.wd_ok is not False:
+                log.warning("watchdog: server unreachable (%s)", e)
+            self.wd_ok = False
+            return
+        if self.wd_ok is False:
+            log.info("watchdog: server reachable again, sending the whole state")
+            self.wd_ok = True
+            self.load_config()
+            self.send(list(self.sensors))
+        self.wd_ok, self.wd_last_ok = True, datetime.now(UTC).isoformat()
+
     def set(self, code, occupied, plate=None):
         with self.lock:
             s = self.sensors.get(code)
@@ -138,13 +160,18 @@ class Simulator:
         with self.lock:
             return {"sensors": sorted(self.sensors.values(), key=lambda s: s["bay"] or ""),
                     "traffic": self.traffic, "error": self.last_error, "last_sent": self.last_sent,
-                    "server": self.base.rsplit("/api/", 1)[0]}
+                    "server": self.base.rsplit("/api/", 1)[0],
+                    "watchdog": {"ok": self.wd_ok, "seq": self.wd_seq, "last_ok": self.wd_last_ok,
+                                 "period_s": WATCHDOG_SECONDS}}
 
     def background(self):
-        next_config = next_resend = 0.0
+        next_config = next_resend = next_watchdog = 0.0
         next_traffic = time.time()
-        while not self.stop.wait(1):
+        while not self.stop.wait(0.25):
             now = time.time()
+            if now >= next_watchdog:
+                next_watchdog = now + WATCHDOG_SECONDS
+                self.watchdog()
             if now >= next_config:
                 self.load_config()
                 next_config = now + CONFIG_SECONDS

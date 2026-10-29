@@ -26,6 +26,7 @@ class FakeServer:
     def __init__(self):
         self.received = {"readings": {}, "events": {}, "passages": {}}
         self.heartbeats = []
+        self.watchdog = []
         self.down = False
         server = self
 
@@ -61,6 +62,9 @@ class FakeServer:
                     return
                 kind = self.path.rsplit("/", 1)[-1]
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if kind == "watchdog":
+                    server.watchdog.append(body)
+                    return self._reply(200, {"ok": True, "period_s": 2.0})
                 if kind == "heartbeat":
                     server.heartbeats.append(body)
                     return self._reply(200, {"ok": True})
@@ -114,6 +118,20 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(readings[0]["device_code"], "CPV-EXT-01")
         self.assertTrue(readings[0]["is_occupied"])
         self.assertEqual(self.agent.outbox.size(), 0)
+
+    def test_watchdog_signal_and_outage(self):
+        self.agent.watchdog_once()
+        self.agent.watchdog_once()
+        self.assertEqual([w["seq"] for w in self.server.watchdog], [1, 2])
+        self.assertEqual(self.server.watchdog[0]["source"], "agent")
+        self.assertIs(self.agent.state.watchdog_ok, True)
+        self.server.down = True
+        self.agent.watchdog_once()
+        self.assertIs(self.agent.state.watchdog_ok, False)
+        self.server.down = False
+        self.agent.watchdog_once()
+        self.assertIs(self.agent.state.watchdog_ok, True)
+        self.assertEqual(self.server.watchdog[-1]["seq"], 4)              # the lost signal shows in the numbering
 
     def test_unreadable_sensor_raises_then_clears_same_event(self):
         self.io.values.pop(2)

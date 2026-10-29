@@ -41,6 +41,7 @@ MSG = {
 }
 CAMERA_LOST = "device.camera_connection_lost"  # camera of a camera presence sensor (plate_sensor) not delivering images
 PRIORITY = {"camera": "alarm", "front_presence_sensor": "warning", "vertical_presence_sensor": "warning"}
+WATCHDOG_S = 2.0  # communication watchdog with the server: one signal every 2 s (0.5 Hz)
 UNREADABLE_SAMPLES = 10  # consecutive unreadable samples before a sensor is declared faulty
 
 
@@ -82,6 +83,8 @@ class State:
     site_name: str = ""
     ble_key: str | None = None                                   # server Ed25519 public key (base64)
     ble_enabled: bool = False
+    watchdog_seq: int = 0
+    watchdog_ok: bool | None = None                              # None = not tried yet
 
 
 class Agent:
@@ -352,6 +355,22 @@ class Agent:
             self.clear_fault("NET-SRV", "network")
             self.flush_once()
 
+    def watchdog_once(self) -> None:
+        """Communication watchdog with the server, every WATCHDOG_S (0.5 Hz). The server raises an alarm
+        after 3 missing signals; the offline queue is resent by the uploader when the link is back."""
+        self.state.watchdog_seq += 1
+        try:
+            self.client.watchdog({"source": "agent", "seq": self.state.watchdog_seq})
+        except (ServerError, Rejected) as exc:
+            if self.state.watchdog_ok is not False:
+                log.warning("watchdog: server unreachable (%s)", exc)
+            self.state.watchdog_ok = False
+            return
+        if self.state.watchdog_ok is False:
+            log.info("watchdog: server reachable again")
+        self.state.watchdog_ok = True
+        self.state.last_server_ok = time.monotonic()
+
     def heartbeat_once(self) -> bool:
         with self.lock:
             statuses = [{"code": code, "status": "fault" if code in self.state.faults else "ok"} for code in self.state.devices]
@@ -406,6 +425,7 @@ class Agent:
         self._loop("cameras", lambda: self.cfg.camera_check_interval_s, lambda: self.check_cameras(misses))
         self._loop("uploader", lambda: self.state.upload_s, upload)
         self._loop("heartbeat", lambda: self.state.heartbeat_s, self.heartbeat_once)
+        self._loop("watchdog", lambda: WATCHDOG_S, lambda: self.watchdog_once() and None)
         self._loop("config", lambda: 600, lambda: self.stop.wait(600) or (self.load_config() and 0))
         if self.cfg.lanes:
             self._loop("lanes", lambda: 0.2, lanes)

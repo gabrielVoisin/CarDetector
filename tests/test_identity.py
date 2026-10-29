@@ -191,6 +191,16 @@ class AgentBleTest(unittest.TestCase):
 
 
 class DetectorTest(unittest.TestCase):
+    def test_camera_detector_plate_follows_the_state(self):
+        io = NetworkIO(timeout_s=30)
+        io.set(1, True, "VD90214", 0.93)
+        self.assertEqual(io.plate_of(1), ("VD90214", 0.93))
+        io.set(1, True)                                                   # heartbeat without plate keeps it
+        self.assertEqual(io.plate_of(1), ("VD90214", 0.93))
+        io.set(1, False)
+        self.assertEqual(io.plate_of(1), (None, None))
+        self.assertEqual(io.plate_of(None), (None, None))
+
     def test_push_simulate_and_timeout(self):
         now = [100.0]
         io = NetworkIO(timeout_s=30, clock=lambda: now[0])

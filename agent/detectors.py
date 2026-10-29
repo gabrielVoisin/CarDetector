@@ -41,12 +41,21 @@ class NetworkIO(IOBackend):
         self.clock = clock
         self.rng = random.Random(seed)
         self.values: dict[int, tuple[bool, float]] = {}
+        self.plates: dict[int, tuple[str, float | None]] = {}   # plate read by a camera detector, if any
         self.pulses: list[tuple[int, float]] = []
         self.lock = threading.Lock()
 
-    def set(self, channel: int, occupied: bool) -> None:
+    def set(self, channel: int, occupied: bool, plate: str | None = None, confidence: float | None = None) -> None:
         with self.lock:
             self.values[channel] = (bool(occupied), self.clock())
+            if occupied and plate:
+                self.plates[channel] = (str(plate), confidence)
+            elif not occupied:
+                self.plates.pop(channel, None)
+
+    def plate_of(self, channel: int | None) -> tuple[str | None, float | None]:
+        with self.lock:
+            return self.plates.get(channel, (None, None)) if channel is not None else (None, None)
 
     def read(self, channel: int) -> bool | None:
         with self.lock:
@@ -139,8 +148,11 @@ class DetectorServer:
                 if not self._authorised():
                     return
                 try:
-                    occupied = bool(self._body()["occupied"])
-                except (ValueError, KeyError, TypeError):
+                    body = self._body()
+                    occupied = bool(body["occupied"])
+                    plate = body.get("plate") or None
+                    confidence = float(body["confidence"]) if body.get("confidence") is not None else None
+                except (ValueError, KeyError, TypeError, AttributeError):
                     self._reply(422, {"detail": "expected {\"occupied\": true|false}"})
                     return
                 parts = [p for p in self.path.split("/") if p]
@@ -157,7 +169,7 @@ class DetectorServer:
                     self._reply(404, {"detail": "unknown_detector_or_bay"})
                     return
                 for ch in channels:
-                    server.io.set(ch, occupied)
+                    server.io.set(ch, occupied, plate, confidence)
                 self._reply(200, {"ok": True, "channels": channels, "occupied": occupied})
 
         self.httpd = ThreadingHTTPServer(self.address, Handler)

@@ -169,6 +169,13 @@ class Agent:
             self.clear_fault(code, "unreadable")
         return value
 
+    def _plate_of(self, code: str | None) -> tuple[str | None, float | None]:
+        """Plate sent by a camera detector (plate_sensor) with its state; GPIO sensors have none."""
+        plate_of = getattr(self.io, "plate_of", None)
+        if plate_of is None or not code:
+            return None, None
+        return plate_of(channel_of(self.state.devices.get(code, {}).get("address")))
+
     def sample_once(self) -> None:
         t = time.monotonic()
         for bay_id, w in list(self.state.bays.items()):
@@ -190,10 +197,12 @@ class Agent:
             if occupied != w.reported and t - w.candidate_since >= self.cfg.debounce_s:
                 w.reported = occupied
                 at = now()
+                code = w.vertical if vertical is not None else w.front
+                plate, confidence = self._plate_of(code) if occupied else (None, None)
                 self.outbox.put("readings", {
                     "uid": f"{bay_id[:8]}-{int(at.timestamp() * 1000)}",
-                    "device_code": w.vertical if vertical is not None else w.front,
-                    "is_occupied": occupied, "plate": None, "confidence": None, "measured_at": at.isoformat(),
+                    "device_code": code,
+                    "is_occupied": occupied, "plate": plate, "confidence": confidence, "measured_at": at.isoformat(),
                 })
 
     # ---- cameras ------------------------------------------------------------------------

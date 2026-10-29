@@ -1,6 +1,7 @@
 """Plate sensor: the Raspberry Pi camera reads car plates (fast-alpr) and acts as presence sensor CP-001.
 
-  * tells the cabinet agent whether the bay is occupied:  POST <--detector-url> {"occupied": true|false}
+  * tells the cabinet agent whether the bay is occupied:  POST <--detector-url> {"occupied": true|false,
+    "plate": "VD90214"|null, "confidence": 0.93|null}
     on every change and every --detector-heartbeat seconds (a bay is occupied while a plate is confirmed,
     and for --occupied-hold seconds after the last confirmed read)
   * serves the live view and the current values to the IntelPark back office (HTTP, default 0.0.0.0:8081):
@@ -308,11 +309,14 @@ def notify_agent_loop(state, url, token, heartbeat, stop):
     headers = {"X-Detector-Token": token} if token else {}
     sent, sent_at, failing = None, 0.0, False
     while not stop.wait(0.5):
-        occupied = state.occupied
+        snap = state.snapshot()
+        occupied = snap["occupied"]
         if occupied == sent and time.time() - sent_at < heartbeat:
             continue
         try:
-            r = session.post(url, json={"occupied": occupied}, headers=headers, timeout=3)
+            # The plate goes with the state: the server opens the parking session with it.
+            body = {"occupied": occupied, "plate": snap["plate"], "confidence": snap["confidence"]}
+            r = session.post(url, json=body, headers=headers, timeout=3)
             r.raise_for_status()
             if occupied != sent:
                 log.info("Bay %s -> agent", "occupied" if occupied else "free")

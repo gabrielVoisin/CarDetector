@@ -39,6 +39,7 @@ MSG = {
     "front_presence_sensor": "device.front_sensor_faulty",
     "vertical_presence_sensor": "device.vertical_sensor_faulty",
 }
+CAMERA_LOST = "device.camera_connection_lost"  # camera of a camera presence sensor (plate_sensor) not delivering images
 PRIORITY = {"camera": "alarm", "front_presence_sensor": "warning", "vertical_presence_sensor": "warning"}
 UNREADABLE_SAMPLES = 10  # consecutive unreadable samples before a sensor is declared faulty
 
@@ -176,7 +177,20 @@ class Agent:
             return None, None
         return plate_of(channel_of(self.state.devices.get(code, {}).get("address")))
 
+    def check_camera_sensors(self) -> None:
+        """Presence sensors that are cameras (plate_sensor): alarm when their camera stops delivering images."""
+        camera_ok = getattr(self.io, "camera_ok", None)
+        if camera_ok is None:
+            return
+        for code, d in list(self.state.devices.items()):
+            ok = camera_ok(channel_of(d.get("address")))
+            if ok is False:
+                self.raise_fault(code, d.get("kind", "front_presence_sensor"), "camera_lost", "alarm", CAMERA_LOST)
+            elif ok is True:
+                self.clear_fault(code, "camera_lost")
+
     def sample_once(self) -> None:
+        self.check_camera_sensors()
         t = time.monotonic()
         for bay_id, w in list(self.state.bays.items()):
             front, vertical = self._read_sensor(w.front), self._read_sensor(w.vertical)

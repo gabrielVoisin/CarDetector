@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from agent import identity
 from agent.client import ServerError
 from agent.config import Config
-from agent.detectors import DetectorServer, NetworkIO
+from agent.detectors import CAMERA_SILENT_S, DetectorServer, NetworkIO
 from agent.io_backends import channel_of
 from agent.main import Agent, BayWatch
 
@@ -201,6 +201,21 @@ class DetectorTest(unittest.TestCase):
         self.assertEqual(io.plate_of(1), (None, None))
         self.assertEqual(io.plate_of(None), (None, None))
 
+    def test_camera_detector_lost_camera(self):
+        now = [0.0]
+        io = NetworkIO(timeout_s=0, clock=lambda: now[0])
+        io.set(2, False)
+        self.assertIsNone(io.camera_ok(2))                                # a plain detector has no camera
+        io.set(1, False, camera_ok=None, has_camera=True)
+        self.assertIsNone(io.camera_ok(1))                                # just started, no image yet
+        io.set(1, False, camera_ok=True, has_camera=True)
+        self.assertIs(io.camera_ok(1), True)
+        io.set(1, False, camera_ok=False, has_camera=True)
+        self.assertIs(io.camera_ok(1), False)
+        io.set(1, False, camera_ok=True, has_camera=True)
+        now[0] += CAMERA_SILENT_S + 1                                     # the reader went silent
+        self.assertIs(io.camera_ok(1), False)
+
     def test_push_simulate_and_timeout(self):
         now = [100.0]
         io = NetworkIO(timeout_s=30, clock=lambda: now[0])
@@ -237,3 +252,4 @@ class DetectorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

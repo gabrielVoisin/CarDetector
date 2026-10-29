@@ -40,6 +40,8 @@ ROTATIONS = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_9
 OVERLAY_SECONDS = 1.0  # how long a detection box stays on the live view after it was seen
 CPU_TEMP_FILE = Path("/sys/class/thermal/thermal_zone0/temp")
 THERMAL_CHECK_SECONDS = 5.0
+CAMERA_LOST_SECONDS = 10.0     # no frame for this long: the camera connection is reported lost
+CAMERA_RESTART_SECONDS = 30.0  # no frame for this long: exit, systemd restarts the reader and the camera
 LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 
 
@@ -155,6 +157,18 @@ class SensorState:
         self.cpu_temp, self.thermal_state = None, "normal"
         self.updated_at = time.time()
         self.paused = False
+        self.last_frame_at = time.time()  # the camera has CAMERA_LOST_SECONDS to deliver its first frame
+        self.got_frame = False
+
+    def frame_received(self):
+        self.last_frame_at, self.got_frame = time.time(), True
+
+    def camera_ok(self, now):
+        """True / False, or None while the camera has not delivered its first frame yet (just started):
+        after a restart caused by a lost camera, the alarm stays raised until a frame really arrives."""
+        if now - self.last_frame_at > CAMERA_LOST_SECONDS:
+            return False
+        return True if self.got_frame else None
 
     def confirmed(self, plate, conf):
         now = time.time()
@@ -166,7 +180,9 @@ class SensorState:
     def _occupied(self, now):
         if not self.last_confirmed:
             return False
-        # While analysis is paused (too hot) the last known state is kept: "not seen" is not "free".
+        # While analysis is paused (too hot) or the camera delivers no image, the last known state is
+        # kept: "not seen" is not "free". The state is judged when the camera last saw the bay.
+        now = min(now, self.last_frame_at + 1)
         return self.paused or now - self.last_confirmed <= self.hold_s
 
     @property
@@ -190,6 +206,8 @@ class SensorState:
                 "thermal_state": self.thermal_state,
                 "rotate": self.rotate,
                 "updated_at": iso(self.updated_at),
+                "camera_ok": self.camera_ok(now),
+                "last_frame_at": iso(self.last_frame_at),
             }
 
 
@@ -238,6 +256,7 @@ def stream_loop(cam, frames, overlay, state, rotate, stop):
     count, since = 0, time.time()
     while not stop.is_set():
         yuv = cam.capture_array("lores")
+        state.frame_received()
         img = rotate_frame(cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420), rotate)
         overlay.draw(img)
         ok, jpeg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -310,24 +329,43 @@ def notify_agent_loop(state, url, token, heartbeat, stop):
     sent, sent_at, failing = None, 0.0, False
     while not stop.wait(0.5):
         snap = state.snapshot()
-        occupied = snap["occupied"]
-        if occupied == sent and time.time() - sent_at < heartbeat:
+        occupied, camera_ok = snap["occupied"], snap["camera_ok"]
+        if (occupied, camera_ok) == sent and time.time() - sent_at < heartbeat:
             continue
         try:
             # The plate goes with the state: the server opens the parking session with it.
-            body = {"occupied": occupied, "plate": snap["plate"], "confidence": snap["confidence"]}
+            # camera_ok false: the agent raises "camera connection lost" on this sensor.
+            body = {"occupied": occupied, "plate": snap["plate"], "confidence": snap["confidence"],
+                    "camera_ok": camera_ok}
             r = session.post(url, json=body, headers=headers, timeout=3)
             r.raise_for_status()
             if occupied != sent:
                 log.info("Bay %s -> agent", "occupied" if occupied else "free")
             if failing:
                 log.info("Cabinet agent reachable again")
-            sent, failing = occupied, False
+            sent, failing = (occupied, camera_ok), False
         except requests.RequestException as exc:
             if not failing:
                 log.warning("Could not reach the cabinet agent at %s: %s", url, exc)
             failing = True
         sent_at = time.time()  # on failure, retry at the next heartbeat
+
+
+def camera_watchdog(state, stop):
+    """libcamera can stop delivering frames without any error (capture_array then waits forever).
+    After CAMERA_LOST_SECONDS the sensor reports the camera lost (status.json, agent); after
+    CAMERA_RESTART_SECONDS it exits so that systemd (Restart=always) restarts it with a fresh camera."""
+    lost = False
+    while not stop.wait(1):
+        silent = time.time() - state.last_frame_at
+        if silent > CAMERA_LOST_SECONDS and not lost:
+            log.error("Camera connection lost: no frame for %.0f s", silent)
+        elif silent <= CAMERA_LOST_SECONDS and lost:
+            log.info("Camera frames are back")
+        lost = silent > CAMERA_LOST_SECONDS
+        if silent > CAMERA_RESTART_SECONDS:
+            log.error("No frame for %.0f s: exiting so that systemd restarts the camera", silent)
+            os._exit(3)  # the capture threads are stuck inside libcamera: a clean shutdown would hang too
 
 
 def open_camera(index, width, height, with_view):
@@ -433,6 +471,7 @@ def main():
                args=(state, args.detector_url, os.environ.get("DETECTOR_TOKEN", ""), args.detector_heartbeat, stop)).start()
         log.info("Presence sensor %s reports to %s", args.device_code, args.detector_url)
 
+    Thread(target=camera_watchdog, args=(state, stop), daemon=True).start()
     confirmer = Confirmer(args.window, args.min_votes)
     last_sent = last_report = time.time()
     analysed = seen = 0
@@ -465,6 +504,7 @@ def main():
             next_frame = max(next_frame + 1 / thermal.fps, time.time())
 
             frame = rotate_frame(cam.capture_array(), args.rotate)
+            state.frame_received()
             found = find_plates(alpr, frame)
             overlay.set(found, (frame.shape[1], frame.shape[0]), args.min_conf)
             analysed += 1

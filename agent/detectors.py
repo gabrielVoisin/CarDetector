@@ -30,6 +30,9 @@ from agent.io_backends import IOBackend
 log = logging.getLogger("parking-agent.detectors")
 
 
+CAMERA_SILENT_S = 45.0  # a camera detector repeats its state every 10 s: silent this long = connection lost
+
+
 class NetworkIO(IOBackend):
     """Presence values pushed by the detectors; barrier relays (if any) on the Pi's own GPIO."""
 
@@ -42,12 +45,16 @@ class NetworkIO(IOBackend):
         self.rng = random.Random(seed)
         self.values: dict[int, tuple[bool, float]] = {}
         self.plates: dict[int, tuple[str, float | None]] = {}   # plate read by a camera detector, if any
+        self.cameras: dict[int, tuple[bool | None, float]] = {}  # camera detectors: is the camera delivering images?
         self.pulses: list[tuple[int, float]] = []
         self.lock = threading.Lock()
 
-    def set(self, channel: int, occupied: bool, plate: str | None = None, confidence: float | None = None) -> None:
+    def set(self, channel: int, occupied: bool, plate: str | None = None, confidence: float | None = None,
+            camera_ok: bool | None = None, has_camera: bool = False) -> None:
         with self.lock:
             self.values[channel] = (bool(occupied), self.clock())
+            if has_camera:
+                self.cameras[channel] = (camera_ok, self.clock())
             if occupied and plate:
                 self.plates[channel] = (str(plate), confidence)
             elif not occupied:
@@ -56,6 +63,16 @@ class NetworkIO(IOBackend):
     def plate_of(self, channel: int | None) -> tuple[str | None, float | None]:
         with self.lock:
             return self.plates.get(channel, (None, None)) if channel is not None else (None, None)
+
+    def camera_ok(self, channel: int | None) -> bool | None:
+        """For a camera detector: False when its camera is lost or the detector went silent
+        (CAMERA_SILENT_S), True when it delivers images, None if unknown or not a camera detector."""
+        with self.lock:
+            item = self.cameras.get(channel) if channel is not None else None
+        if item is None:
+            return None
+        ok, seen = item
+        return False if self.clock() - seen > CAMERA_SILENT_S else ok
 
     def read(self, channel: int) -> bool | None:
         with self.lock:
@@ -152,6 +169,8 @@ class DetectorServer:
                     occupied = bool(body["occupied"])
                     plate = body.get("plate") or None
                     confidence = float(body["confidence"]) if body.get("confidence") is not None else None
+                    has_camera = "camera_ok" in body
+                    camera_ok = None if body.get("camera_ok") is None else bool(body["camera_ok"])
                 except (ValueError, KeyError, TypeError, AttributeError):
                     self._reply(422, {"detail": "expected {\"occupied\": true|false}"})
                     return
@@ -169,7 +188,7 @@ class DetectorServer:
                     self._reply(404, {"detail": "unknown_detector_or_bay"})
                     return
                 for ch in channels:
-                    server.io.set(ch, occupied, plate, confidence)
+                    server.io.set(ch, occupied, plate, confidence, camera_ok, has_camera)
                 self._reply(200, {"ok": True, "channels": channels, "occupied": occupied})
 
         self.httpd = ThreadingHTTPServer(self.address, Handler)

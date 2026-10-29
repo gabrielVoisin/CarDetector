@@ -495,6 +495,9 @@ def main():
                 last_report = time.time()
 
             if thermal.fps <= 0:  # too hot: no analysis, the live view keeps streaming
+                if args.no_http:  # no live view feeding the watchdog: check the camera still delivers
+                    cam.capture_metadata()
+                    state.frame_received()
                 time.sleep(1)
                 next_frame = time.time()
                 continue

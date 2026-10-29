@@ -1,0 +1,14 @@
+# User service:  cp sensor_simulator/sensor-simulator.service ~/.config/systemd/user/
+#                systemctl --user daemon-reload && systemctl --user enable --now sensor-simulator
+[Unit]
+Description=IntelPark presence sensor simulator (test page on :8082)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/intelpark/CarDetector
+ExecStart=/usr/bin/python3 %h/intelpark/CarDetector/sensor_simulator/simulator.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

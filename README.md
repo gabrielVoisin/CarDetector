@@ -53,3 +53,22 @@ journalctl --user -u parking-reader -f      # une ligne toutes les 10 s : images
 Test sans caméra sur une photo : `.venv/bin/python reader.py --image voiture.jpg`.
 `reader.env` et `sensor.env` restent sur le Pi (ignorés par git). Une seule application peut utiliser la
 caméra à la fois.
+
+## Simulateur de capteurs de présence (`sensor_simulator/`)
+
+Une page web pour garer et faire partir des voitures à la main, afin de tester le tableau de bord.
+Le simulateur joue les capteurs CP-002 à CP-056 de l'armoire CTRL-01 (toutes les places P1 / Extérieur
+sauf la 05, qui est la vraie caméra CP-001) et envoie leurs mesures au serveur par le réseau, comme une
+vraie armoire (`POST /api/v1/device/readings`). L'agent réel ne voit pas ces capteurs (adresse `sim:`).
+
+```bash
+# sur le serveur : activer les capteurs simulés (et "off" pour les retirer, leurs places redeviennent libres)
+docker compose -f docker-compose.yml -f deploy/raspberry-pi/docker-compose.pi.yml exec -T api python -m app.cli simulated-sensors on
+# sur le Pi
+cp sensor_simulator/simulator.env.example sensor_simulator/simulator.env
+python3 sensor_simulator/simulator.py          # puis ouvrir http://<pi>:8082
+```
+
+La page propose : clic sur une place (avec la plaque saisie, ou une plaque au hasard), « Tout libérer »,
+« Remplir à 50 % », « Tout remplir » et un trafic automatique (une arrivée ou un départ toutes les 3 à 8 s).
+Service utilisateur : `sensor_simulator/sensor-simulator.service`. Python 3 seul, sans dépendance.

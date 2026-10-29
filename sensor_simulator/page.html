@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulateur de capteurs</title>
+<style>
+:root {
+  --ink: #16181D; --ink-2: #2B2F38; --muted: #555963; --line: #DDDFD8; --line-2: #C9CCC4;
+  --bg: #EEEFEA; --card: #FFFFFF; --soft: #F6F7F3; --blue: #1F4FD1; --blue-dark: #163A9C; --blue-soft: #DCE5FB;
+  --red: #D7261E; --red-soft: #FDF1F0; --green: #1A7A4C; --green-soft: #E3F1E9;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; }
+header { background: var(--ink); color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+.logo { width: 40px; height: 40px; border-radius: 8px; background: var(--blue); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 22px; }
+header .sub { font-size: 13px; color: #B5B8BF; }
+main { max-width: 1240px; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 20px; }
+h1 { margin: 0; font-size: 28px; }
+.card { background: var(--card); border-radius: 12px; padding: 20px 24px; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn { min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1.5px solid var(--ink); background: #fff; color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+.btn:hover { background: var(--soft); }
+.btn.primary { background: var(--ink); color: #fff; }
+.btn.on { background: var(--green); border-color: var(--green); color: #fff; }
+input[type=text] { min-height: 40px; padding: 0 12px; border-radius: 8px; border: 1.5px solid var(--line-2); font: inherit; font-family: var(--mono); text-transform: uppercase; width: 160px; }
+label { font-size: 13px; color: var(--muted); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kpi { background: var(--card); border-radius: 12px; padding: 14px 20px; }
+.kpi span { font-size: 13px; color: var(--muted); } .kpi b { display: block; font-size: 28px; }
+.lot { overflow-x: auto; }
+.bays { display: grid; grid-template-columns: repeat(14, minmax(58px, 1fr)); gap: 6px; min-width: 860px; }
+.aisle { grid-column: 1 / -1; font-family: var(--mono); font-size: 12px; letter-spacing: .15em; color: var(--muted); padding: 6px 2px; border-bottom: 1.5px dashed var(--line-2); margin-bottom: 6px; }
+.bay { height: 84px; border: 1.5px solid var(--ink); border-radius: 6px; background: #fff; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-family: var(--mono); font-weight: 600; padding: 2px; }
+.bay small { font-size: 10px; font-weight: 500; overflow: hidden; max-width: 100%; }
+.bay.occupied { background: var(--ink); color: #fff; }
+.bay.real { border-style: dashed; color: var(--muted); cursor: not-allowed; background: var(--soft); }
+.bay:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.status { font-size: 13px; } .status.err { color: var(--red); } .status.ok { color: var(--green); }
+.legend { display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
+.sw { display: inline-block; width: 14px; height: 14px; border: 1.5px solid var(--ink); border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
+</style>
+</head>
+<body>
+<header><div class="logo">P</div><div><div style="font-weight:600">IntelPark</div><div class="sub">Simulateur de capteurs de présence · armoire CTRL-01</div></div></header>
+<main>
+  <div>
+    <h1>Simulateur de capteurs</h1>
+    <p class="muted" style="margin:6px 0 0">Cliquez sur une place pour y garer une voiture ou la faire partir. Chaque changement est envoyé au serveur comme le ferait une vraie armoire, et apparaît aussitôt sur le tableau de bord.</p>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><span>Libres</span><b id="k-free">–</b></div>
+    <div class="kpi"><span>Occupées</span><b id="k-occ">–</b></div>
+    <div class="kpi"><span>Capteurs simulés</span><b id="k-all">–</b></div>
+  </div>
+  <section class="card">
+    <div class="row">
+      <div><label for="plate">Plaque de la prochaine voiture</label><br><input id="plate" type="text" placeholder="au hasard" maxlength="12"></div>
+      <button class="btn" data-fill="0">Tout libérer</button>
+      <button class="btn" data-fill="0.5">Remplir à 50 %</button>
+      <button class="btn" data-fill="1">Tout remplir</button>
+      <button class="btn" id="traffic" aria-pressed="false">Trafic automatique : arrêté</button>
+    </div>
+    <p id="status" class="status" style="margin:12px 0 0">Connexion…</p>
+  </section>
+  <section class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin:0;font-size:18px">P1 · Extérieur</h2>
+      <div class="legend"><span><i class="sw"></i>Libre</span><span><i class="sw" style="background:var(--ink)"></i>Occupée</span><span><i class="sw" style="border-style:dashed;background:var(--soft)"></i>Caméra réelle (CP-001)</span></div>
+    </div>
+    <div class="lot"><div class="bays" id="bays"></div></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let state = null;
+
+function cell(n, s) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  const num = String(n).padStart(2, '0');
+  if (!s) {
+    b.className = 'bay real'; b.disabled = true;
+    b.innerHTML = `${num}<small>${n === 5 ? 'caméra' : '–'}</small>`;
+    return b;
+  }
+  b.className = 'bay' + (s.occupied ? ' occupied' : '');
+  b.innerHTML = `${num}<small>${s.occupied ? (s.plate || '') : s.code}</small>`;
+  b.setAttribute('aria-label', `Place ${num}, ${s.occupied ? 'occupée par ' + (s.plate || '') : 'libre'}`);
+  b.onclick = () => post('/bay', { code: s.code, occupied: !s.occupied, plate: $('plate').value.trim() || null })
+    .then(() => { if (!s.occupied) $('plate').value = ''; });
+  return b;
+}
+
+function render() {
+  if (!state) return;
+  const byBay = Object.fromEntries(state.sensors.map((s) => [s.bay, s]));
+  const grid = $('bays'); grid.innerHTML = '';
+  const aisle = (t) => { const d = document.createElement('div'); d.className = 'aisle'; d.textContent = t; grid.appendChild(d); };
+  for (let n = 1; n <= 56; n++) {
+    if (n === 15) aisle('ALLÉE A →');
+    if (n === 43) aisle('ALLÉE B →');
+    grid.appendChild(cell(n, byBay[String(n).padStart(2, '0')]));
+  }
+  const occ = state.sensors.filter((s) => s.occupied).length;
+  $('k-occ').textContent = occ; $('k-free').textContent = state.sensors.length - occ; $('k-all').textContent = state.sensors.length;
+  const t = $('traffic');
+  t.classList.toggle('on', state.traffic); t.setAttribute('aria-pressed', state.traffic);
+  t.textContent = 'Trafic automatique : ' + (state.traffic ? 'en marche' : 'arrêté');
+  const st = $('status');
+  if (!state.sensors.length && !state.error) {
+    st.className = 'status err'; st.textContent = 'Aucun capteur simulé sur le serveur : lancez « python -m app.cli simulated-sensors on ».';
+  } else if (state.error) {
+    st.className = 'status err'; st.textContent = `Serveur ${state.server} injoignable (${state.error}).`;
+  } else {
+    st.className = 'status ok';
+    st.textContent = `Connecté à ${state.server}` + (state.last_sent ? ` · dernier envoi ${new Date(state.last_sent).toLocaleTimeString('fr-CH')}` : '');
+  }
+}
+
+async function post(path, body) {
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res.ok) { state = await res.json(); render(); }
+}
+async function refresh() {
+  try { state = await (await fetch('/state.json')).json(); render(); }
+  catch (e) { $('status').className = 'status err'; $('status').textContent = 'Le simulateur ne répond plus.'; }
+}
+document.querySelectorAll('[data-fill]').forEach((b) => b.onclick = () => post('/fill', { rate: Number(b.dataset.fill) }));
+$('traffic').onclick = () => post('/traffic', { on: !state.traffic });
+refresh(); setInterval(refresh, 2000);
+</script>
+</body>
+</html>

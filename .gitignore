@@ -5,3 +5,4 @@ __pycache__/
 plate_sensor/reader.env
 plate_sensor/sensor.env
 plate_sensor/.venv/
+sensor_simulator/simulator.env

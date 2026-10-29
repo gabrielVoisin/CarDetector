@@ -1,0 +1,16 @@
+# Prototype: EVERYTHING on one Raspberry Pi (server + database + website, cabinet agent,
+# simulated car detectors, Bluetooth). Installed by deploy/raspberry-pi/install-all-in-one.sh as
+# /etc/parking-agent/config.yaml.
+server_url: http://127.0.0.1:8000            # the server runs on the same Pi (docker compose)
+controller_key: ctrl0001.demo-secret-change-me-1   # demo cabinet CTRL-01 of car park P1
+data_dir: /var/lib/parking-agent
+io_backend: network                          # car detectors simulated (or real ones on Ethernet)
+debounce_s: 2
+detectors:
+  listen: 0.0.0.0:8090
+  token: null                                # set one as soon as real detectors are connected
+  timeout_s: 0                               # simulated detectors never go silent
+  simulate_traffic: false                    # cars arrive when you say so: POST /simulate/bay/EXT/05
+ble:
+  enabled: true
+  adapter: hci0

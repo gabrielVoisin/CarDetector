@@ -1,0 +1,45 @@
+# /etc/parking-agent/config.yaml  (chmod 600, owner parking-agent)
+server_url: https://parking.example.com
+# Shown once in the back office (Appareils de contrôle > register) or by
+#   python -m app.cli new-controller P1 CTRL-01 "Armoire Parking 1"
+# It can also be given with the PARKING_CONTROLLER_KEY environment variable.
+controller_key: ctrl0001.demo-secret-change-me-1
+# ca_file: /etc/parking-agent/ca.pem     # only for a server with a private certificate authority
+data_dir: /var/lib/parking-agent
+
+# I/O hardware: simulator | gpio | mcp23017 | network
+#   network = car detectors connected to the cabinet over Ethernet (they push their state, see detectors:)
+io_backend: mcp23017
+mcp23017:                 # 16 inputs per chip; channel 1 = first chip pin A0, channel 17 = second chip A0...
+  - {bus: 1, address: 0x20}
+  - {bus: 1, address: 0x21}
+  - {bus: 1, address: 0x22}
+  - {bus: 1, address: 0x23}
+gpio_pins:                # channel -> BCM pin (inputs with the gpio backend, barrier relays with both)
+  901: 5                  # entry loop detector
+  902: 6                  # exit loop detector
+  911: 23                 # entry barrier relay
+  912: 24                 # exit barrier relay
+
+anpr_url: http://127.0.0.1:8081   # local plate-recognition service, optional
+
+sample_interval_s: 1
+debounce_s: 3
+disagree_fault_s: 600
+camera_check_interval_s: 30
+offline_warning_after_s: 60
+
+lanes:
+  - {direction: in,  camera: CAM-01, loop_channel: 901, barrier_channel: 911}
+  - {direction: out, camera: CAM-02, loop_channel: 902, barrier_channel: 912}
+
+# Car detectors on the cabinet's Ethernet (io_backend: network)
+detectors:
+  listen: 0.0.0.0:8090        # POST /detectors/<device code> {"occupied": true}
+  token: change-me-detectors  # header X-Detector-Token sent by every detector
+  timeout_s: 30               # a detector silent longer than this is reported faulty
+
+# Bluetooth identification of the drivers' phones ("smart bay"). Needs bluez, python3-dbus, python3-gi.
+ble:
+  enabled: true
+  adapter: hci0

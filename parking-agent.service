@@ -1,0 +1,23 @@
+[Unit]
+Description=Parking control cabinet agent
+After=network-online.target bluetooth.service
+Wants=network-online.target bluetooth.service
+
+[Service]
+Type=simple
+User=parking-agent
+Group=parking-agent
+SupplementaryGroups=gpio i2c bluetooth
+WorkingDirectory=/opt/parking-agent
+ExecStart=/opt/parking-agent/venv/bin/python -m agent -c /etc/parking-agent/config.yaml
+Restart=always
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/parking-agent
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
